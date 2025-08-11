@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>super bear run</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f8ff;
+            font-family: 'Arial', sans-serif;
+            flex-direction: column;
+            color: #333;
+            overflow: hidden; /* Hide overflow to prevent scrolling */
+        }
+        
+        #game-container {
+            position: relative;
+            width: 1024px;
+            height: 768px;
+            border: 5px solid #2e8b57;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #score-board {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            font-size: 1.5em;
+            font-weight: bold;
+            text-align: center;
+            z-index: 10;
+        }
+
+        #game-over-modal {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            font-size: 2em;
+            z-index: 20;
+        }
+
+        #game-over-modal p {
+            margin: 10px;
+        }
+
+        #game-over-modal button {
+            padding: 10px 20px;
+            font-size: 0.8em;
+            border: none;
+            border-radius: 5px;
+            background-color: #2e8b57;
+            color: #fff;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #game-over-modal button:hover {
+            background-color: #3cb371;
+        }
+
+        #controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .control-btn {
+            background-color: #fff;
+            border: 2px solid #2e8b57;
+            color: #2e8b57;
+            font-size: 2em;
+            width: 60px;
+            height: 60px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            user-select: none; /* Prevent text selection on touch devices */
+            -webkit-user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="score-board">???????: 0</div>
+        <div id="game-over-modal">
+            <p>????? ??????!</p>
+            <p>??????? ????????: <span id="final-score">0</span></p>
+            <button onclick="startGame()">????? ?????</button>
+        </div>
+    </div>
+    <div id="controls">
+        <button class="control-btn" id="up-btn">&#9650;</button>
+        <button class="control-btn" id="left-btn">&#9664;</button>
+        <button class="control-btn" id="right-btn">&#9654;</button>
+        <button class="control-btn" id="down-btn">&#9660;</button>
+        <button class="control-btn" id="attack-btn">B</button>
+    </div>
+
+    <!-- Import Three.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // Game variables
+        let score = 0;
+        let isGameOver = false;
+        let keys = {};
+        const bearSpeed = 0.1;
+        const enemySpeed = 0.05;
+        const maxEnemies = 5;
+        let lastEnemySpawnTime = 0;
+        const enemySpawnInterval = 3000;
+        const attackRange = 2; // Attack range for the bear
+        let isAttacking = false; // To track if the bear is in an attack state
+
+        // HTML elements
+        const gameContainer = document.getElementById('game-container');
+        const scoreBoard = document.getElementById('score-board');
+        const gameOverModal = document.getElementById('game-over-modal');
+        const finalScoreSpan = document.getElementById('final-score');
+        const upBtn = document.getElementById('up-btn');
+        const leftBtn = document.getElementById('left-btn');
+        const rightBtn = document.getElementById('right-btn');
+        const downBtn = document.getElementById('down-btn');
+        const attackBtn = document.getElementById('attack-btn');
+
+        // Three.js setup
+        let scene, camera, renderer, bear, collectibleBird, enemies = [];
+        let gamePlane;
+
+        // Initialize the scene
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb); // Sky blue background
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, gameContainer.clientWidth / gameContainer.clientHeight, 0.1, 1000);
+            camera.position.set(0, 10, 15);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(gameContainer.clientWidth, gameContainer.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            gameContainer.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -10;
+            directionalLight.shadow.camera.right = 10;
+            directionalLight.shadow.camera.top = 10;
+            directionalLight.shadow.camera.bottom = -10;
+            scene.add(directionalLight);
+
+            // Game Plane (Ground)
+            const planeGeometry = new THREE.PlaneGeometry(30, 30);
+            const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x2e8b57 });
+            gamePlane = new THREE.Mesh(planeGeometry, planeMaterial);
+            gamePlane.rotation.x = -Math.PI / 2;
+            gamePlane.position.y = -0.5;
+            gamePlane.receiveShadow = true;
+            scene.add(gamePlane);
+
+            // Handle window resizing
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            camera.aspect = gameContainer.clientWidth / gameContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(gameContainer.clientWidth, gameContainer.clientHeight);
+        }
+
+        // Create a 3D bear model
+        function createBearModel() {
+            const group = new THREE.Group();
+            const brownMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+            const beigeMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5dc });
+            const darkBrownMaterial = new THREE.MeshStandardMaterial({ color: 0x5c3317 });
+
+            // Body
+            const bodyGeometry = new THREE.BoxGeometry(2, 2, 2);
+            const body = new THREE.Mesh(bodyGeometry, brownMaterial);
+            body.castShadow = true;
+            group.add(body);
+
+            // Head
+            const headGeometry = new THREE.BoxGeometry(2, 2, 2);
+            const head = new THREE.Mesh(headGeometry, brownMaterial);
+            head.position.y = 2.0;
+            head.castShadow = true;
+            group.add(head);
+
+            // Snout
+            const faceGeometry = new THREE.BoxGeometry(1.5, 1, 0.5);
+            const face = new THREE.Mesh(faceGeometry, beigeMaterial);
+            face.position.set(0, 2.0, 1.0);
+            face.castShadow = true;
+            group.add(face);
+
+            // Nose
+            const noseGeometry = new THREE.BoxGeometry(0.5, 0.3, 0.1);
+            const nose = new THREE.Mesh(noseGeometry, darkBrownMaterial);
+            nose.position.set(0, 2.1, 1.25);
+            group.add(nose);
+            
+            // Eyes
+            const eyeGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.1);
+            const rightEye = new THREE.Mesh(eyeGeometry, darkBrownMaterial);
+            rightEye.position.set(0.5, 2.5, 1.01);
+            group.add(rightEye);
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, darkBrownMaterial);
+            leftEye.position.set(-0.5, 2.5, 1.01);
+            group.add(leftEye);
+            
+            // Ears
+            const earGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const rightEar = new THREE.Mesh(earGeometry, brownMaterial);
+            rightEar.position.set(1.0, 3.0, 0.0);
+            rightEar.castShadow = true;
+            group.add(rightEar);
+
+            const leftEar = new THREE.Mesh(earGeometry, brownMaterial);
+            leftEar.position.set(-1.0, 3.0, 0.0);
+            leftEar.castShadow = true;
+            group.add(leftEar);
+            
+            // Arms
+            const armGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.5);
+            const rightArm = new THREE.Mesh(armGeometry, brownMaterial);
+            rightArm.position.set(1.25, 0.5, 0);
+            rightArm.castShadow = true;
+            group.add(rightArm);
+            
+            const leftArm = new THREE.Mesh(armGeometry, brownMaterial);
+            leftArm.position.set(-1.25, 0.5, 0);
+            leftArm.castShadow = true;
+            group.add(leftArm);
+            
+            // Legs
+            const legGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.5);
+            const rightLeg = new THREE.Mesh(legGeometry, brownMaterial);
+            rightLeg.position.set(0.75, -1.0, 0);
+            rightLeg.castShadow = true;
+            group.add(rightLeg);
+            
+            const leftLeg = new THREE.Mesh(legGeometry, brownMaterial);
+            leftLeg.position.set(-0.75, -1.0, 0);
+            leftLeg.castShadow = true;
+            group.add(leftLeg);
+
+            // Tummy Patch
+            const tummyGeometry = new THREE.PlaneGeometry(1, 1.5);
+            const tummyMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5dc, side: THREE.DoubleSide });
+            const tummy = new THREE.Mesh(tummyGeometry, tummyMaterial);
+            tummy.position.set(0, 0.5, 1.01);
+            group.add(tummy);
+
+            return group;
+        }
+
+        // Create a 3D bird model (the collectible)
+        function createCollectibleBird() {
+            const scaleFactor = 0.5; // New scale factor to make it smaller
+            const group = new THREE.Group();
+            const yellowMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+            const blueMaterial = new THREE.MeshStandardMaterial({ color: 0x00bfff });
+            const blackMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            
+            // Body
+            const bodyGeometry = new THREE.BoxGeometry(1.5 * scaleFactor, 2.5 * scaleFactor, 1.5 * scaleFactor);
+            const body = new THREE.Mesh(bodyGeometry, yellowMaterial);
+            body.castShadow = true;
+            group.add(body);
+            
+            // Head
+            const headGeometry = new THREE.BoxGeometry(2 * scaleFactor, 2 * scaleFactor, 2 * scaleFactor);
+            const head = new THREE.Mesh(headGeometry, yellowMaterial);
+            head.position.y = 2.25 * scaleFactor;
+            head.castShadow = true;
+            group.add(head);
+
+            // Tummy Patch
+            const tummyGeometry = new THREE.PlaneGeometry(1 * scaleFactor, 2 * scaleFactor);
+            const tummy = new THREE.Mesh(tummyGeometry, blueMaterial);
+            tummy.position.set(0, 0, 0.751 * scaleFactor);
+            group.add(tummy);
+            
+            // Eyes
+            const eyeGeometry = new THREE.BoxGeometry(0.5 * scaleFactor, 0.5 * scaleFactor, 0.2 * scaleFactor);
+            const rightEye = new THREE.Mesh(eyeGeometry, blackMaterial);
+            rightEye.position.set(0.5 * scaleFactor, 2.5 * scaleFactor, 1.01 * scaleFactor);
+            group.add(rightEye);
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, blackMaterial);
+            leftEye.position.set(-0.5 * scaleFactor, 2.5 * scaleFactor, 1.01 * scaleFactor);
+            group.add(leftEye);
+            
+            // Beak
+            const beakGeometry = new THREE.ConeGeometry(0.5 * scaleFactor, 0.5 * scaleFactor, 4);
+            const beakMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+            const beak = new THREE.Mesh(beakGeometry, beakMaterial);
+            beak.rotation.x = Math.PI / 2;
+            beak.position.set(0, 2 * scaleFactor, 1.2 * scaleFactor);
+            beak.castShadow = true;
+            group.add(beak);
+            
+            // Wings
+            const armGeometry = new THREE.BoxGeometry(0.5 * scaleFactor, 1.5 * scaleFactor, 0.5 * scaleFactor);
+            const rightArm = new THREE.Mesh(armGeometry, yellowMaterial);
+            rightArm.rotation.z = -Math.PI / 4;
+            rightArm.position.set(1 * scaleFactor, 0.5 * scaleFactor, 0);
+            group.add(rightArm);
+            
+            const leftArm = new THREE.Mesh(armGeometry, yellowMaterial);
+            leftArm.rotation.z = Math.PI / 4;
+            leftArm.position.set(-1 * scaleFactor, 0.5 * scaleFactor, 0);
+            group.add(leftArm);
+            
+            return group;
+        }
+
+        // Create a 3D bee model (the enemy)
+        function createBeeModel() {
+            const group = new THREE.Group();
+
+            // Body
+            const bodyGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1.5, 8);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.rotation.x = Math.PI / 2;
+            body.castShadow = true;
+            group.add(body);
+
+            // Stripes
+            const stripeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const stripe1 = new THREE.Mesh(new THREE.CylinderGeometry(0.51, 0.51, 0.2, 8), stripeMaterial);
+            stripe1.rotation.x = Math.PI / 2;
+            stripe1.position.z = 0.3;
+            stripe1.castShadow = true;
+            group.add(stripe1);
+            const stripe2 = new THREE.Mesh(new THREE.CylinderGeometry(0.51, 0.51, 0.2, 8), stripeMaterial);
+            stripe2.rotation.x = Math.PI / 2;
+            stripe2.position.z = -0.3;
+            stripe2.castShadow = true;
+            group.add(stripe2);
+            
+            return group;
+        }
+
+        // Place the collectible bird at a random position
+        function spawnCollectibleBird() {
+            const x = (Math.random() - 0.5) * 20;
+            const z = (Math.random() - 0.5) * 20;
+            collectibleBird.position.set(x, 0.5, z);
+        }
+
+        // Attack function
+        function attackBees() {
+            if (isAttacking) return;
+            isAttacking = true;
+
+            const bearPosition = bear.position.clone();
+            const hitEnemies = [];
+
+            enemies.forEach((bee, index) => {
+                const distance = bearPosition.distanceTo(bee.position);
+                if (distance < attackRange) {
+                    hitEnemies.push(index);
+                }
+            });
+
+            for (let i = hitEnemies.length - 1; i >= 0; i--) {
+                const enemyIndex = hitEnemies[i];
+                scene.remove(enemies[enemyIndex]);
+                enemies.splice(enemyIndex, 1);
+                score += 5; // Points for each bee hit
+                scoreBoard.textContent = `???????: ${score}`;
+            }
+
+            setTimeout(() => {
+                isAttacking = false;
+            }, 500); // 500ms cooldown
+        }
+
+        // Start or restart the game
+        function startGame() {
+            if (bear) {
+                scene.remove(bear);
+            }
+            if (collectibleBird) {
+                scene.remove(collectibleBird);
+            }
+            enemies.forEach(enemy => scene.remove(enemy));
+            enemies = [];
+            
+            score = 0;
+            isGameOver = false;
+            scoreBoard.textContent = '???????: 0';
+            gameOverModal.style.display = 'none';
+            keys = {};
+            isAttacking = false;
+
+            // Create new 3D models
+            bear = createBearModel();
+            bear.position.set(0, 0, 0);
+            scene.add(bear);
+
+            collectibleBird = createCollectibleBird();
+            scene.add(collectibleBird);
+            spawnCollectibleBird();
+            lastEnemySpawnTime = Date.now();
+            
+            animate();
+        }
+
+        // Game loop
+        function animate() {
+            if (isGameOver) return;
+
+            // Player movement with WASD or Arrow Keys
+            let moveX = 0;
+            let moveZ = 0;
+            if (keys.arrowup || keys.w) moveZ = -bearSpeed;
+            if (keys.arrowdown || keys.s) moveZ = bearSpeed;
+            if (keys.arrowleft || keys.a) moveX = -bearSpeed;
+            if (keys.arrowright || keys.d) moveX = bearSpeed;
+            
+            bear.position.x += moveX;
+            bear.position.z += moveZ;
+
+            // Clamp bear position to stay on the plane
+            const planeSize = 15;
+            bear.position.x = Math.max(-planeSize, Math.min(planeSize, bear.position.x));
+            bear.position.z = Math.max(-planeSize, Math.min(planeSize, bear.position.z));
+            
+            // If the attack key is pressed
+            if (keys.b) {
+                attackBees();
+            }
+
+            // Enemy movement (bees chase the bear)
+            enemies.forEach(bee => {
+                const direction = new THREE.Vector3().subVectors(bear.position, bee.position).normalize();
+                bee.position.add(direction.multiplyScalar(enemySpeed));
+            });
+
+            // Collision detection with collectible bird
+            const bearBoundingBox = new THREE.Box3().setFromObject(bear);
+            const birdBoundingBox = new THREE.Box3().setFromObject(collectibleBird);
+            if (bearBoundingBox.intersectsBox(birdBoundingBox)) {
+                score += 10;
+                scoreBoard.textContent = `???????: ${score}`;
+                spawnCollectibleBird();
+            }
+
+            // Collision detection with enemies
+            enemies.forEach(bee => {
+                const beeBoundingBox = new THREE.Box3().setFromObject(bee);
+                if (bearBoundingBox.intersectsBox(beeBoundingBox)) {
+                    gameOver();
+                }
+            });
+
+            // Spawn new enemies
+            if (enemies.length < maxEnemies && Date.now() - lastEnemySpawnTime > enemySpawnInterval) {
+                const newBee = createBeeModel();
+                
+                // Random spawn position on a side
+                const spawnSide = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
+                const spawnDist = 18;
+                switch(spawnSide) {
+                    case 0: newBee.position.set(Math.random() * spawnDist - spawnDist / 2, 0, -spawnDist / 2); break;
+                    case 1: newBee.position.set(spawnDist / 2, 0, Math.random() * spawnDist - spawnDist / 2); break;
+                    case 2: newBee.position.set(Math.random() * spawnDist - spawnDist / 2, 0, spawnDist / 2); break;
+                    case 3: newBee.position.set(-spawnDist / 2, 0, Math.random() * spawnDist - spawnDist / 2); break;
+                }
+                
+                scene.add(newBee);
+                enemies.push(newBee);
+                lastEnemySpawnTime = Date.now();
+            }
+
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+
+        // Game over function
+        function gameOver() {
+            isGameOver = true;
+            finalScoreSpan.textContent = score;
+            gameOverModal.style.display = 'flex';
+        }
+
+        // Keyboard controls
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+        
+        // Touch controls for mobile
+        function handleButton(event, isPressed) {
+            const key = event.target.id;
+            if (key === 'up-btn') keys.arrowup = isPressed;
+            if (key === 'down-btn') keys.arrowdown = isPressed;
+            if (key === 'left-btn') keys.arrowleft = isPressed;
+            if (key === 'right-btn') keys.arrowright = isPressed;
+            if (key === 'attack-btn') keys.b = isPressed;
+        }
+
+        upBtn.addEventListener('mousedown', (e) => handleButton(e, true));
+        upBtn.addEventListener('mouseup', (e) => handleButton(e, false));
+        upBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleButton(e, true); }, { passive: false });
+        upBtn.addEventListener('touchend', (e) => { e.preventDefault(); handleButton(e, false); });
+
+        downBtn.addEventListener('mousedown', (e) => handleButton(e, true));
+        downBtn.addEventListener('mouseup', (e) => handleButton(e, false));
+        downBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleButton(e, true); }, { passive: false });
+        downBtn.addEventListener('touchend', (e) => { e.preventDefault(); handleButton(e, false); });
+
+        leftBtn.addEventListener('mousedown', (e) => handleButton(e, true));
+        leftBtn.addEventListener('mouseup', (e) => handleButton(e, false));
+        leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleButton(e, true); }, { passive: false });
+        leftBtn.addEventListener('touchend', (e) => { e.preventDefault(); handleButton(e, false); });
+
+        rightBtn.addEventListener('mousedown', (e) => handleButton(e, true));
+        rightBtn.addEventListener('mouseup', (e) => handleButton(e, false));
+        rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleButton(e, true); }, { passive: false });
+        rightBtn.addEventListener('touchend', (e) => { e.preventDefault(); handleButton(e, false); });
+
+        attackBtn.addEventListener('mousedown', (e) => handleButton(e, true));
+        attackBtn.addEventListener('mouseup', (e) => handleButton(e, false));
+        attackBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handleButton(e, true); }, { passive: false });
+        attackBtn.addEventListener('touchend', (e) => { e.preventDefault(); handleButton(e, false); });
+
+
+        // Start the game when the window loads
+        window.onload = function() {
+            init();
+            startGame();
+        };
+
+    </script>
+</body>
+</html>
